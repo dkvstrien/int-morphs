@@ -92,7 +92,7 @@ def get_field_text_for_card(card: Card) -> str | None:
     return None
 
 
-def process_bayesian_review(card: Card) -> None:
+def process_bayesian_review(reviewer, card: Card, ease: int) -> None:
     """
     Process a reviewed card through Bayesian inference.
 
@@ -129,32 +129,9 @@ def process_bayesian_review(card: Card) -> None:
     if not lemmas:
         return
 
-    # Determine PASS/FAIL from card's review state
-    # ease >= 3 = PASS, ease <= 2 = FAIL
-    passed = card.ivl >= 0 and card.queue >= 0  # Default to pass for existing cards
-
-    # We need the review ease — get it from the reviewer
-    try:
-        from aqt import mw as aqt_mw
-        reviewer = aqt_mw.reviewer
-        if reviewer and hasattr(reviewer, "last_review_ease"):
-            # Anki 25.x stores last ease on the reviewer
-            last_ease = getattr(reviewer, "_answered_recently", None)
-        passed = True  # Conservative default
-    except Exception:
-        passed = True
-
-    # Actually, get the ease from the card's review history
-    # The reviewer_did_answer_card hook includes the card
-    # and we can check if it was recently reviewed
-    try:
-        # In Anki 25.x, we can read the last review entry
-        if hasattr(card, "review_history") and card.review_history:
-            last_review = card.review_history[-1]
-            ease = last_review[3] if len(last_review) > 3 else 3
-            passed = ease >= 3
-    except Exception:
-        passed = True
+    # Determine PASS/FAIL from ease rating
+    # ease 1=Again, 2=Hard → FAIL; 3=Good, 4=Easy → PASS
+    passed = ease >= 3
 
     # Initialize Bayesian engine
     inf = BayesianInference(
