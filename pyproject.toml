@@ -1,0 +1,120 @@
+[tool.isort]
+profile = "black"
+skip_gitignore = "True"
+line_length = "88"
+
+[tool.mypy]
+mypy_path = ["."]
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+follow_imports = "silent"
+disable_error_code = ["method-assign"]
+strict = true
+disallow_subclassing_any = false # Qt false positives
+files = ["intmorphs", "test"]
+exclude = ["intmorphs/ui/", "test/data"]
+
+[[tool.mypy.overrides]]
+module = "test.*"
+disable_error_code = ["untyped-decorator"]
+
+[tool.pylint]
+
+[tool.pylint."MESSAGES CONTROL"]
+disable = """
+    missing-module-docstring,
+    missing-function-docstring,
+    missing-class-docstring,
+    protected-access,
+    redefined-outer-name,
+    line-too-long,
+    too-few-public-methods,
+    fixme,
+    global-statement,
+    relative-beyond-top-level,
+    too-many-positional-arguments,
+    invalid-name,
+"""
+
+[tool.pylint.similarities]
+ignore-comments = true
+ignore-docstrings = true
+ignore-imports = true
+ignore-signatures = true
+min-similarity-lines = 7
+
+# optional VSCode typchecker
+[tool.pyright]
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportOptionalMemberAccess = false
+reportIncompatibleMethodOverride = false
+reportAttributeAccessIssue = false
+reportInvalidTypeForm = false
+exclude = ["intmorphs/ui/", "test/data"]
+
+# Docs: https://docs.pytest.org/en/7.1.x/reference/reference.html#ini-options-ref
+[tool.pytest.ini_options]
+# testpaths: directories that should be searched when no specific directories, files or test ids are given
+testpaths = "test/tests"
+# python_files: determining which python files are considered as test modules.
+python_files = "*_test.py"
+# python_functions: which test functions and methods are considered tests
+python_functions = "test_*"
+# spaCy uses some libs that give deprocated warnings, disable these to prevent tests from failing
+filterwarnings = [
+  "ignore::DeprecationWarning:pymorphy3"
+]
+# required_plugins: plugins that must be present for pytest to run
+# pytest-qt: allows for writing tests for PyQt5, PyQt6, PySide2 and PySide6 applications.
+# pytest-xvfb: allows tests to be run without windows popping up during GUI tests or on systems without a display (like a CI).
+# pytest-expect: stores test expectations by saving the set of failing tests, allowing them to be marked as xfail when running them in future.
+# pytest-sugar: showing failures and errors instantly, adding a progress bar, improving the test results, and making the output look better.
+# pytest-randomly: randomly order tests and control random.seed.
+# pytest-cov: test coverage
+# - use "pytest --randomly-seed=xxxxxxx" to repeate failing seeds
+required_plugins = "pytest-qt pytest-xvfb pytest-expect pytest-sugar pytest-randomly pytest-cov"
+# xfail_strict = True: tests marked with @pytest.mark.xfail that actually succeed will by default fail the test suite
+xfail_strict = "True"
+# addopts: set of command line arguments as if they had been specified by the user
+# --strict-markers: markers not registered in the `markers` section of the configuration file raise errors.
+# --durations=5: show the N slowest setup/test durations (N=0 for all)
+# --maxfail=1: exit after first num failures or errors.
+# --cov=intmorphs: filesystem path of the project to cover
+# --cov-report html: type of report to generate. Open html reeports by clicking `index.html` in `htmlcov/`
+addopts = "--strict-markers --durations=5 --maxfail=1000000"
+# markers: whitelist custom markers
+# example with: pytest -m slow
+markers = [
+  "slow",
+  "recalc",
+  "external_morphemizers",
+  "should_cause_exception",
+  "debug"
+]
+
+[tool.vulture]
+paths = ["intmorphs"]
+exclude = [
+  "intmorphs/ui/",
+  "intmorphs/debug_utils.py",
+  "intmorphs/table_utils.py",
+  "intmorphs/morphemizers/spacy_wrapper.py",
+  "intmorphs/morphemizers/mecab_wrapper.py"
+]
+ignore_names = [
+  "print_*",
+  "_refresh_needed",
+  "_v3",
+  "reopen",
+  "closeWithCallback",
+  "closeEvent",
+  "toolbar_stats_use_seen",
+  "extra_fields_display_lemmas",
+  "min_occurrence",
+  "skip_dont_when_contains_fresh_morphs"
+]
+min_confidence = 60
+sort_by_size = true
+verbose = false

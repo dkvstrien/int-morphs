@@ -1,0 +1,21 @@
+# Tips & Tricks
+
+### Learning specific media
+
+If you want to learn a specific piece of media—like a book or a movie—a targeted [priority file](prioritizing.md) can speed things
+up compared to a general one. However, ou should only really do this after you have already learned **at least** the
+most frequent 2k morphs. If you start to specialize too early you can fall into the trap of "over-fitting"
+your vocabulary and understanding of the language.
+
+### Reverting IntMorphs changes
+
+There are a couple of ways to revert the changes IntMorphs has made to your card collection:
+
+- Restore from a previous backup you made.
+- If you only want to revert how IntMorphs sorted the cards, then you can do the following:    
+  `Browse -> Card State -> New cards -> Select all (Ctrl + A) -> Reset... -> Restore original position where possible`
+
+### Using Yomitan frequency dictionaries
+
+If you want to sort your cards using Yomitan-format frequency dictionaries, you can use this cool tool:
+[https://github.com/NaabZer/anki-morph-frequency-prio](https://github.com/NaabZer/anki-morph-frequency-prio)

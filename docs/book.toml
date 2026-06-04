@@ -1,0 +1,25 @@
+[book]
+authors = ["mortii"]
+language = "en"
+src = "src"
+title = "IntMorphs"
+
+[output.html]
+git-repository-url = "https://github.com/mortii/anki-morphs"
+edit-url-template = "https://github.com/mortii/anki-morphs/edit/main/docs/{path}"
+additional-css = ["src/custom.css"]
+site-url = "/anki-morphs/"
+mathjax-support = true
+
+[output.html.fold]
+enable = true
+level = 0
+
+[output.html.search]
+limit-results = 20
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 2
+boost-paragraph = 1
+expand = true
+heading-split-level = 2

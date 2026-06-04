@@ -1,0 +1,119 @@
+ci: # the pre-commit ci bot on github does not like repo: local
+    skip: [pylint, black, mypy, pytest]
+    autoupdate_schedule: quarterly
+    autofix_prs: false
+
+exclude: |
+  (?x)^(
+      intmorphs/ui/.*|
+      test/data/morphemizers/.*|
+  )$
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--enforce-all']
+        exclude: |
+          (?x)^(
+              docs/src/priority_files/.*|
+              docs/src/img/revert_changes.mp4|
+              docs/src/img/note-type.mp4|
+              docs/src/img/deck-options.mp4|
+              docs/src/img/learn-now.mp4|
+              docs/src/img/adding-extra-fields.mp4|
+              test/data/card_collections/big_japanese_collection.anki2|
+              test/data/card_collections/card_stability_collection.anki2|
+              test/data/card_collections/card_interval_collection.anki2|
+              test/data/am_dbs/big_japanese_collection.db|
+          )$
+      - id: check-case-conflict
+      - id: check-json
+      - id: pretty-format-json
+        args: ['--autofix']
+        exclude: |
+          (?x)^(
+              test/data/correct_outputs/.*|
+          )$
+      - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+              docs/.*|
+          )$
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: debug-statements
+      - id: name-tests-test
+        files: '^test/tests'
+      - id: requirements-txt-fixer
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.2
+    hooks:
+      - id: codespell
+        exclude: |
+          (?x)^(
+              test/.*|
+              docs/src/priority_files/.*|
+          )$
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: v1.10.0
+    hooks:
+      - id: python-check-blanket-type-ignore
+      - id: python-use-type-annotations
+      - id: python-check-mock-methods
+  - repo: https://github.com/pappasam/toml-sort
+    rev: v0.24.4
+    hooks:
+      - id: toml-sort-fix
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.21.2
+    hooks:
+      - id: pyupgrade
+        args: [--py39-plus]
+        files: 'intmorphs/|^test/'
+  - repo: https://github.com/pycqa/isort
+    rev: 8.0.1
+    hooks:
+      - id: isort
+        name: isort (python)
+        files: 'intmorphs/|^test/'
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.16
+    hooks:
+      - id: vulture
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.23.1
+    hooks:
+      - id: zizmor
+        files: '.github/workflows/.*\.yml$'
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.2
+    hooks:
+      - id: mypy
+        args: [ --no-incremental ]
+        files: ^(intmorphs|test)/
+        pass_filenames: true
+  - repo: local
+    hooks:
+      - id: pylint
+        name: pylint
+        entry: pylint
+        language: system
+        require_serial: true
+        types: [ python ]
+        files: 'intmorphs/|^test/'
+      - id: black
+        name: black
+        entry: black
+        language: system
+        types: [ python ]
+        files: 'intmorphs/|^test/'
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system
+        pass_filenames: false
+        always_run: true

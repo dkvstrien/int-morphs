@@ -1,0 +1,30 @@
+# binaries
+*.pyc
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode
+.idea
+
+# virtusl environments
+.venv
+venv
+.designer-venv
+
+# mdbook
+docs/book
+
+# misc ankimorphs files
+ankimorphs/meta.json
+ankimorphs.db
+ankimorphs*.ankiaddon
+anki_output.txt
+profile.svg
+test/data/tests_outputs/*
+*.anki2-wal
+
+# pytest-cov
+.coverage
+htmlcov/

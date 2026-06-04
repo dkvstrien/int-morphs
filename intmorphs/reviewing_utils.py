@@ -1,0 +1,445 @@
+from __future__ import annotations
+
+from functools import partial
+from typing import Callable
+
+from anki import errors as anki_errors
+from anki.cards import Card
+from anki.collection import UndoStatus
+from anki.consts import CARD_TYPE_NEW
+from anki.notes import Note
+from aqt import mw
+from aqt.operations import QueryOp
+from aqt.qt import QKeySequence, Qt  # pylint:disable=no-name-in-module
+from aqt.reviewer import Reviewer
+from aqt.utils import tooltip
+
+from . import intmorphs_config
+from .intmorphs_config import IntMorphsConfig
+from .intmorphs_db import IntMorphsDB
+from .browser_utils import browse_same_morphs
+from .exceptions import CancelledOperationException, CardQueueEmptyException
+
+SET_KNOWN_AND_SKIP_UNDO_STRING = "Set known and skip"
+ANKIMORPHS_CUSTOM_UNDO_STRING = "IntMorphs custom undo"
+valid_undo_merge_targets: set[str] = {""}
+set_known_and_skip_undo_status: UndoStatus | None = None
+
+
+def init_undo_targets() -> None:
+    """
+    The targets are just strings determined by the Anki interface language.
+    Translation functions are found in anki/_fluent.py
+    """
+    assert mw is not None
+    global valid_undo_merge_targets
+
+    valid_undo_merge_targets = {
+        mw.col.tr.actions_answer_card(),
+        mw.col.tr.actions_forget_card(),
+        mw.col.tr.actions_set_due_date(),
+        mw.col.tr.studying_bury(),
+        mw.col.tr.studying_suspend(),
+        mw.col.tr.studying_delete_note(),
+    }
+
+
+def am_next_card() -> None:
+    ################################################################
+    #                          FREEZING
+    ################################################################
+    # A lot of cards might be skipped, so to prevent Anki from
+    # freezing we have to run this on a background thread by using
+    # QueryOp.
+    ################################################################
+
+    assert mw is not None
+    assert mw.reviewer is not None
+
+    am_config = IntMorphsConfig()
+    skipped_cards = SkippedCards()
+
+    operation = QueryOp(
+        parent=mw,
+        op=lambda _: _get_next_card_background(am_config, skipped_cards),
+        success=lambda _: _show_card(am_config, skipped_cards),
+    )
+    operation.failure(_on_failure)
+    operation.with_progress().run_in_background()
+
+
+def _get_next_card_background(
+    am_config: IntMorphsConfig,
+    skipped_cards: SkippedCards,
+) -> None:
+    assert mw is not None
+    assert mw.reviewer is not None
+
+    reviewer: Reviewer = mw.reviewer
+    undo_status = _get_valid_undo_status()
+    am_db = IntMorphsDB()
+
+    while True:
+        # breaking out of this loop means the card will be shown.
+        # reaching the end without breaking means the card is buried (skipped).
+
+        if mw.progress.want_cancel():  # user clicked 'x'
+            raise CancelledOperationException
+
+        mw.taskman.run_on_main(
+            partial(
+                mw.progress.update,
+                label=f"Skipping {skipped_cards.total_cards_skipped} cards",
+            )
+        )
+
+        reviewer.previous_card = reviewer.card
+        reviewer.card = None
+        reviewer._v3 = None
+
+        reviewer._get_next_v3_card()
+        reviewer._previous_card_info.set_card(reviewer.previous_card)
+
+        # the _card_info.set_card function updates the card info window (gui)
+        # if it is open, which you can't do in a background thread (it crashes),
+        # so we have to run the function on the main thread
+        mw.taskman.run_on_main(partial(reviewer._card_info.set_card, reviewer.card))
+
+        if not reviewer.card:
+            raise CardQueueEmptyException  # handled in _on_failure()
+
+        if undo_status.redo != "":
+            break  # the undo stack is dirty, we cannot merge undo entries.
+
+        if reviewer.card.type != CARD_TYPE_NEW:
+            break  # we only want to skip new cards
+
+        note: Note = reviewer.card.note()
+        am_config_filter = intmorphs_config.get_matching_modify_filter(note)
+
+        if am_config_filter is None:
+            break  # card did not match any (note type and tags) set in the settings GUI
+
+        if not skipped_cards.should_skip_card(
+            am_config=am_config, am_db=am_db, note=note, card_id=reviewer.card.id
+        ):
+            break
+
+        mw.col.sched.buryCards([reviewer.card.id], manual=False)
+
+        try:
+            mw.col.merge_undo_entries(undo_status.last_step)
+        except anki_errors.InvalidInput:
+            # if we can't merge into the undo stack due to unusual entries
+            # (e.g. unbury all cards button pressed), then we create
+            # a custom entry point instead of crashing anki
+            mw.col.add_custom_undo_entry(ANKIMORPHS_CUSTOM_UNDO_STRING)
+            undo_status = mw.col.undo_status()
+
+    am_db.con.close()
+
+
+def _get_valid_undo_status() -> UndoStatus:
+    ################################################################
+    #                          UNDO/REDO
+    ################################################################
+    # We are making changes (burying, tagging) BEFORE the next card
+    # is shown, that means the changes have to be merged into the
+    # previous undo entry.
+    #
+    # If the current undo status has a 'redo' value it means the
+    # user undid the previous operation and the undo stack is now
+    # 'dirty', which means we cannot merge undo entries--you get
+    # an error if you try.
+    ################################################################
+    assert mw is not None
+
+    undo_status = mw.col.undo_status()
+
+    if undo_status.undo == SET_KNOWN_AND_SKIP_UNDO_STRING:
+        # The undo stack has been altered, so we cannot use
+        # the normal 'last_step' as a merge point, we have
+        # to use set_known_and_skip_undo last_step instead.
+        # See comment in set_card_as_known_and_skip for more info
+        assert set_known_and_skip_undo_status is not None
+        undo_status = set_known_and_skip_undo_status
+    elif undo_status.undo not in valid_undo_merge_targets:
+        # We have to create a custom undo_targets that can be merged into.
+        mw.col.add_custom_undo_entry(ANKIMORPHS_CUSTOM_UNDO_STRING)
+        undo_status = mw.col.undo_status()
+
+    return undo_status
+
+
+def _show_card(
+    am_config: IntMorphsConfig,
+    skipped_cards: SkippedCards,
+) -> None:
+    assert mw is not None
+    assert mw.reviewer is not None
+
+    # The lifecycle of the reviewer and its properties
+    # are somewhat mysterious and inconsistent, so using
+    # normal 'is None' checks are not enough to prevent
+    # runtime errors. We therefore have to use try catch
+    # and just silently ignore the errors, everything
+    # usually works regardless, so it's just noise.
+    try:
+        if mw.reviewer._reps is None:
+            mw.reviewer._initWeb()
+        mw.reviewer._showQuestion()
+
+    except AttributeError:
+        # This triggers on NoneType exceptions.
+        # On Reviewer.cleanup() the card is set to None.
+        # Usually a new reviewer object will take over,
+        # so everything should still work, and we can just
+        # ignore the error.
+        print("IntMorphs: mw.reviewer.card is None!")
+
+    if am_config.skip_show_num_of_skipped_cards:
+        if skipped_cards.total_cards_skipped > 0:
+            skipped_cards.show_tooltip_of_skipped_cards()
+
+
+def _set_card_as_known_and_skip(am_config: IntMorphsConfig) -> None:
+    ################################################################
+    #                          KNOWN BUG
+    ################################################################
+    # When the 'set known and skip' is the only operation that
+    # has taken place the user cannot undo it. If any manual
+    # operation takes place before or after, e.g. answering a card,
+    # THEN you can undo it...
+    #
+    # So for example, if you start reviewing a deck, and you press
+    # 'K' on the first card you see, it gets set as known and is
+    # skipped. At that point, you cannot undo. If you answer the
+    # next card that is shown (or bury it or change it in any way),
+    # you can now undo twice and the previous 'set known and skip'
+    # will be undone.
+    #
+    # This is a weird bug, but I suspect it is due to some guards
+    # Anki has about not being able to undo something until the user
+    # has made a change manually first.
+    ################################################################
+    ################################################################
+    #                     MERGING UNDO ENTRIES
+    ################################################################
+    # Every undo entry/undo status has a 'last_step' value. This
+    # is an incremented value assigned when the operation is created.
+    # When merging undo entries, this is the value that is used as
+    # a pointer/id to the undo entry.
+    #
+    # Let's say we have 3 undo entries:
+    # first_entry: UndoState(undo='answered card', redo='', last_step=1)
+    # second_entry: UndoState(undo='answered card', redo='', last_step=2)
+    # third_entry: UndoState(undo='answered card', redo='', last_step=3)
+    #
+    # If we now merged the second and third entries into the first
+    # entry, e.g. col.merge_undo_entries(1), we cannot later merge
+    # entries into 2 or 3, because they don't 'exist' anymore. If we
+    # want to merge into those, then we need to merge into 1 instead.
+    # This is why we need to store set_known_and_skip_undo as a global
+    # variable--to keep track of where the entries were merged into,
+    # so we can merge into this point later in am_next_card.
+    ################################################################
+    global set_known_and_skip_undo_status
+
+    assert mw is not None
+    assert mw.reviewer is not None
+    assert mw.reviewer.card is not None
+
+    card: Card = mw.reviewer.card
+    note: Note = card.note()
+    am_config_filter = intmorphs_config.get_matching_modify_filter(note)
+
+    if am_config_filter is None:
+        tooltip("Card does not match any note filter...")
+        return
+
+    if card.type != CARD_TYPE_NEW:
+        tooltip("Card is not in the 'new'-queue")
+        return
+
+    mw.col.add_custom_undo_entry(SET_KNOWN_AND_SKIP_UNDO_STRING)
+    set_known_and_skip_undo_status = mw.col.undo_status()
+
+    mw.col.sched.buryCards([card.id], manual=False)
+
+    note.add_tag(am_config.tag_known_manually)
+    mw.col.update_note(note)
+
+    mw.col.merge_undo_entries(set_known_and_skip_undo_status.last_step)
+
+    with IntMorphsDB() as am_db:
+        am_db.update_seen_morphs_today_single_card(card.id)
+
+    if am_config.skip_show_num_of_skipped_cards:
+        tooltip("Set card as known and skipped")
+
+    mw.reviewer.nextCard()
+
+
+def am_reviewer_shortcut_keys(
+    self: Reviewer,
+    _old: Callable[
+        [Reviewer],
+        list[tuple[str, Callable[[], None]] | tuple[Qt.Key, Callable[[], None]]],
+    ],
+) -> list[tuple[str, Callable[[], None]] | tuple[Qt.Key, Callable[[], None]]]:
+    am_config = IntMorphsConfig()
+
+    key_browse_ready: QKeySequence = am_config.shortcut_browse_ready_same_unknown
+    key_browse_ready_lemma: QKeySequence = (
+        am_config.shortcut_browse_ready_same_unknown_lemma
+    )
+    key_browse_all: QKeySequence = am_config.shortcut_browse_all_same_unknown
+    key_skip: QKeySequence = am_config.shortcut_set_known_and_skip
+
+    keys = _old(self)
+    keys.extend(
+        [
+            (
+                key_browse_ready.toString(),
+                lambda: browse_same_morphs(
+                    am_config, search_unknowns=True, search_ready_tag=True
+                ),
+            ),
+            (
+                key_browse_ready_lemma.toString(),
+                lambda: browse_same_morphs(
+                    am_config,
+                    search_unknowns=True,
+                    search_ready_tag=True,
+                    search_lemma_only=True,
+                ),
+            ),
+            (
+                key_browse_all.toString(),
+                lambda: browse_same_morphs(am_config, search_unknowns=True),
+            ),
+            (key_skip.toString(), lambda: _set_card_as_known_and_skip(am_config)),
+        ]
+    )
+    return keys
+
+
+def _on_failure(
+    error: Exception | CardQueueEmptyException | CancelledOperationException,
+) -> None:
+    # This function runs on the main thread.
+    assert mw is not None
+    assert mw.progress is not None
+    mw.progress.finish()
+
+    if isinstance(error, CardQueueEmptyException):
+        mw.moveToState("overview")
+    elif isinstance(error, CancelledOperationException):
+        tooltip("Cancelled get_next_card")
+        mw.moveToState("overview")
+    else:
+        raise error
+
+
+class SkippedCards:
+    __slots__ = (
+        "skipped_cards_with_no_unknowns",
+        "skipped_cards_with_already_seen_morphs",
+        "total_cards_skipped",
+    )
+
+    def __init__(self) -> None:
+        self.skipped_cards_with_no_unknowns = 0
+        self.skipped_cards_with_already_seen_morphs = 0
+        self.total_cards_skipped = 0
+
+    def should_skip_card(  # pylint:disable=too-many-return-statements
+        self,
+        am_config: IntMorphsConfig,
+        am_db: IntMorphsDB,
+        note: Note,
+        card_id: int,
+    ) -> bool:
+        learn_now_tag: bool = note.has_tag(am_config.tag_learn_card_now)
+        known_automatically: bool = note.has_tag(am_config.tag_known_automatically)
+        known_manually: bool = note.has_tag(am_config.tag_known_manually)
+        known_tag: bool = known_automatically or known_manually
+        fresh_tag: bool = note.has_tag(am_config.tag_fresh)
+
+        if learn_now_tag:
+            # the user manually chose this card for review, don't skip
+            return False
+
+        if known_tag:
+            # this is the simplest case; the 'known' tag is only applied
+            # if every single morph is known, so don't need to
+            # consider fresh morphs here
+            if am_config.skip_no_unknown_morphs:
+                self._will_skip_no_unknowns()
+                return True
+            return False
+
+        if am_config.skip_unknown_morph_seen_today_cards:
+            # this is the ultimate 'I don't care about fresh morphs'
+            # setting, so we don't check for those in this case
+            morphs_already_seen_morphs_today: set[str] = (
+                am_db.get_all_morphs_seen_today(
+                    only_lemma=am_config.evaluate_morph_lemma
+                )
+            )
+            card_unknown_morphs_raw = am_db.get_card_morphs(
+                card_id=card_id,
+                search_unknowns=True,
+                only_lemma=am_config.evaluate_morph_lemma,
+            )
+            if card_unknown_morphs_raw is not None:
+                card_unknown_morphs: set[str] = {
+                    morph_raw[0] + morph_raw[1] for morph_raw in card_unknown_morphs_raw
+                }
+                if card_unknown_morphs.issubset(morphs_already_seen_morphs_today):
+                    self._will_skip_already_seen()
+                    return True
+                return False
+
+        if fresh_tag:
+            # note: the fresh tag is mutually exclusive with the known tag
+            if (
+                am_config.skip_no_unknown_morphs
+                and am_config.skip_when_contains_fresh_morphs
+            ):
+                card_unknown_morphs_raw = am_db.get_card_morphs(
+                    card_id=card_id,
+                    search_unknowns=True,
+                    only_lemma=am_config.evaluate_morph_lemma,
+                )
+                if card_unknown_morphs_raw is None:
+                    self._will_skip_no_unknowns()
+                    return True
+
+        return False
+
+    def _will_skip_no_unknowns(self) -> None:
+        self.skipped_cards_with_no_unknowns += 1
+        self._update_total_skipped()
+
+    def _will_skip_already_seen(self) -> None:
+        self.skipped_cards_with_already_seen_morphs += 1
+        self._update_total_skipped()
+
+    def _update_total_skipped(self) -> None:
+        self.total_cards_skipped = (
+            self.skipped_cards_with_no_unknowns
+            + self.skipped_cards_with_already_seen_morphs
+        )
+
+    def show_tooltip_of_skipped_cards(self) -> None:
+        skipped_string = ""
+
+        if self.skipped_cards_with_no_unknowns > 0:
+            skipped_string += f"Skipped <b>{self.skipped_cards_with_no_unknowns}</b> cards with no unknown morphs"
+        if self.skipped_cards_with_already_seen_morphs > 0:
+            if skipped_string != "":
+                skipped_string += "<br>"
+            skipped_string += f"Skipped <b>{self.skipped_cards_with_already_seen_morphs}</b> cards with morphs already seen today"
+
+        tooltip(skipped_string, parent=mw)
