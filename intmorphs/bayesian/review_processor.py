@@ -181,3 +181,11 @@ def process_bayesian_review(reviewer, card: Card, ease: int) -> None:
     print(f"[IntMorphs] Bayesian review: {len(lemmas)} lemmas, "
           f"{'PASS' if passed else 'FAIL'}, "
           f"updated {len(result)} confidences")
+
+    # Show brief tooltip for visual feedback (first few times)
+    try:
+        from aqt.utils import tooltip
+        total = len(confidence_map)
+        tooltip(f"Bayesian: {total} lemmas tracked", period=1500)
+    except Exception:
+        pass
