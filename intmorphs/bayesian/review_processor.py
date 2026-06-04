@@ -92,7 +92,7 @@ def get_field_text_for_card(card: Card) -> str | None:
     return None
 
 
-def process_card_review(card: Card) -> None:
+def process_bayesian_review(card: Card) -> None:
     """
     Process a reviewed card through Bayesian inference.
 
