@@ -62,7 +62,7 @@ def get_morphemizer_for_card(card: Card) -> Any | None:
             continue
         if config_filter.note_type == note_type_name:
             # Found matching filter — get morphemizer
-            return morphemizer_utils.get_morphemizer(
+            return morphemizer_utils.get_morphemizer_by_description(
                 config_filter.morphemizer_description
             )
 
@@ -124,8 +124,18 @@ def process_bayesian_review(reviewer, card: Card, ease: int) -> None:
     if not field_text:
         return
 
-    # Extract lemmas
-    lemmas = morphemizer.get_morphs_from_text(field_text)
+    # Extract lemmas from the field text
+    # get_morphemes returns Iterator[list[Morpheme]] — extract lemma strings
+    try:
+        morph_lists = list(morphemizer.get_morphemes([field_text]))
+        lemmas = []
+        if morph_lists:
+            for morph in morph_lists[0]:
+                lemmas.append(morph.lemma)
+    except Exception as exc:
+        print(f"[IntMorphs] Morphemizer error: {exc}")
+        return
+
     if not lemmas:
         return
 
