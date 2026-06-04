@@ -16,11 +16,11 @@ from anki.cards import Card
 from anki.notes import Note
 from aqt import mw
 
-from . import intmorphs_config
-from .intmorphs_db import IntMorphsDB
-from .morphemizers import morphemizer_utils
-from .bayesian.inference import BayesianInference
-from .bayesian.models import LemmaConfidence
+from intmorphs import intmorphs_config
+from intmorphs.intmorphs_db import IntMorphsDB
+from intmorphs.morphemizers import morphemizer_utils
+from intmorphs.bayesian.inference import BayesianInference
+from intmorphs.bayesian.models import LemmaConfidence
 
 
 def get_bayesian_config() -> dict[str, Any]:
