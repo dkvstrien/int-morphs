@@ -3,6 +3,7 @@ IntMorphs Bayesian review processor.
 
 Hooks into Anki's card review flow to process PASS/FAIL ratings
 through Bayesian inference per-lemma confidence tracking.
+Also manages target pool promotion after each review.
 
 Reads Bayesian config directly from Anki's addon config system,
 so it doesn't need deep integration with IntMorphsConfig.
@@ -21,6 +22,7 @@ from intmorphs.intmorphs_db import IntMorphsDB
 from intmorphs.morphemizers import morphemizer_utils
 from intmorphs.bayesian.inference import BayesianInference
 from intmorphs.bayesian.models import LemmaConfidence
+from intmorphs.bayesian.target_manager import TargetPool
 
 
 def get_bayesian_config() -> dict[str, Any]:
@@ -42,6 +44,8 @@ def get_bayesian_config() -> dict[str, Any]:
         "min_pass_rate": config.get("bayesian_min_pass_rate", 0.7),
         "srs_initial": config.get("bayesian_srs_initial", 1),
         "srs_max": config.get("bayesian_srs_max", 180),
+        "soak_limit": config.get("soak_limit", 10),
+        "soak_graduate_stage": config.get("soak_graduate_stage", "srs"),
     }
 
 
@@ -106,6 +110,7 @@ def process_bayesian_review(reviewer, card: Card, ease: int) -> None:
     4. Load current lemma confidences from DB
     5. Run Bayesian inference with PASS/FAIL
     6. Save updated confidences back to DB
+    7. Check target pool promotion (graduate → promote next)
     """
     bayesian_config = get_bayesian_config()
     if not bayesian_config.get("enabled", False):
@@ -125,7 +130,6 @@ def process_bayesian_review(reviewer, card: Card, ease: int) -> None:
         return
 
     # Extract lemmas from the field text
-    # get_morphemes returns Iterator[list[Morpheme]] — extract lemma strings
     try:
         morph_lists = list(morphemizer.get_morphemes([field_text]))
         lemmas = []
@@ -140,7 +144,6 @@ def process_bayesian_review(reviewer, card: Card, ease: int) -> None:
         return
 
     # Determine PASS/FAIL from ease rating
-    # ease 1=Again, 2=Hard → FAIL; 3=Good, 4=Easy → PASS
     passed = ease >= 3
 
     # Initialize Bayesian engine
@@ -177,15 +180,38 @@ def process_bayesian_review(reviewer, card: Card, ease: int) -> None:
         # Save back to DB
         am_db.save_all_lemma_confidences(confidence_map)
 
+        # ── Target pool promotion check ──────────────────────────
+        soak_limit = bayesian_config.get("soak_limit", 10)
+        graduate_stage = bayesian_config.get("soak_graduate_stage", "srs")
+        pool = TargetPool(confidence_map, soak_limit=soak_limit, graduate_stage=graduate_stage)
+        promoted = pool.check_promotion()
+
+        if promoted:
+            print(f"[IntMorphs] Target pool promotion: {promoted}")
+            # Save updated confidences (target_rank changes aren't relevant here,
+            # but is_graduated has already been updated by inference)
+            am_db.save_all_lemma_confidences(confidence_map)
+
+        # Count stats for feedback
+        n_active = pool.get_active_count()
+        n_total = pool.get_target_count()
+        n_graduated = pool.get_graduated_count()
+
     # Log for debugging
     print(f"[IntMorphs] Bayesian review: {len(lemmas)} lemmas, "
           f"{'PASS' if passed else 'FAIL'}, "
           f"updated {len(result)} confidences")
 
-    # Show brief tooltip for visual feedback (first few times)
+    if n_total > 0:
+        print(f"[IntMorphs] Targets: {n_active} active, {n_graduated} graduated ({n_total} total)")
+
+    # Show brief tooltip for visual feedback
     try:
         from aqt.utils import tooltip
         total = len(confidence_map)
-        tooltip(f"Bayesian: {total} lemmas tracked", period=1500)
+        parts = [f"Bayesian: {total} lemmas"]
+        if n_total > 0:
+            parts.append(f"{n_active}/{n_total} active targets | {n_graduated} grad")
+        tooltip(" | ".join(parts), period=2000)
     except Exception:
         pass

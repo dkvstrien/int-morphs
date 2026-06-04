@@ -75,6 +75,9 @@ class RawConfigKeys:
     SHORTCUT_GENERATORS = "shortcut_generators"
     SHORTCUT_PROGRESSION = "shortcut_progression"
     SHORTCUT_KNOWN_MORPHS_EXPORTER = "shortcut_known_morphs_exporter"
+    SOAK_LIMIT = "soak_limit"
+    SOAK_GRADUATE_STAGE = "soak_graduate_stage"
+    SOAK_ACTIVE_TARGET_WEIGHT = "soak_active_target_weight"
     SKIP_NO_UNKNOWN_MORPHS = "skip_no_unknown_morphs"
     SKIP_DONT_WHEN_CONTAINS_FRESH_MORPHS = "skip_dont_when_contains_fresh_morphs"
     SKIP_WHEN_CONTAINS_FRESH_MORPHS = "skip_when_contains_fresh_morphs"
@@ -640,6 +643,27 @@ class IntMorphsConfig:  # pylint:disable=too-many-instance-attributes, too-many-
             if not intmorphs_globals.config_broken:
                 show_critical_config_error()
                 intmorphs_globals.config_broken = True
+
+        # Soak/Target settings
+        try:
+            self.soak_limit: int = self._get_config_item(
+                key=RawConfigKeys.SOAK_LIMIT,
+                expected_type=int,
+                use_default=is_default,
+            )
+            self.soak_graduate_stage: str = self._get_config_item(
+                key=RawConfigKeys.SOAK_GRADUATE_STAGE,
+                expected_type=str,
+                use_default=is_default,
+            )
+            self.soak_active_target_weight: int = self._get_config_item(
+                key=RawConfigKeys.SOAK_ACTIVE_TARGET_WEIGHT,
+                expected_type=int,
+                use_default=is_default,
+            )
+        except AssertionError:
+            show_critical_config_error()
+            intmorphs_globals.config_broken = True
 
         if (
             intmorphs_globals.new_config_found

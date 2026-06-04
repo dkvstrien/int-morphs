@@ -28,6 +28,7 @@ from .settings_preprocess_tab import PreprocessTab
 from .settings_shortcuts_tab import ShortcutTab
 from .settings_tab import SettingsTab
 from .settings_tags_tab import TagsTab
+from .settings_targets_tab import TargetWordsTab
 
 
 class SettingsDialog(QDialog):  # pylint:disable=too-many-instance-attributes
@@ -129,6 +130,13 @@ class SettingsDialog(QDialog):  # pylint:disable=too-many-instance-attributes
             default_config=self._default_config,
         )
 
+        self._target_words_tab = TargetWordsTab(
+            parent=self,
+            ui=self.ui,
+            config=self._config,
+            default_config=self._default_config,
+        )
+
         self._note_filters_tab.add_subscriber(self._extra_fields_tab)
         self._extra_fields_tab.add_data_provider(self._note_filters_tab)
 
@@ -141,6 +149,7 @@ class SettingsDialog(QDialog):  # pylint:disable=too-many-instance-attributes
             self._card_handling_tab,
             self._algorithm_tab,
             self._shortcut_tab,
+            self._target_words_tab,
         ]
 
         self._setup_buttons()
@@ -154,6 +163,11 @@ class SettingsDialog(QDialog):  # pylint:disable=too-many-instance-attributes
 
         # apply the size policy to the initial tab
         self._update_size_policies(index=0)
+
+        # Add the programmatic Target Words tab to the tab widget
+        self.ui.tabWidget.addTab(
+            self._target_words_tab.own_widget, "Target Words"
+        )
 
         self.am_extra_settings = IntMorphsExtraSettings()
         self.am_extra_settings.beginGroup(extra_settings_keys.Dialogs.SETTINGS_DIALOG)

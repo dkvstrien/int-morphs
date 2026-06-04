@@ -67,10 +67,15 @@ class IntMorphsDB:  # pylint:disable=too-many-public-methods
 
     def create_lemma_confidence_table(self) -> None:
         """Create the Bayesian confidence tracking table."""
-        from .bayesian.models import LEMMA_CONFIDENCE_TABLE_SQL
+        from .bayesian.models import LEMMA_CONFIDENCE_TABLE_SQL, MIGRATE_ADD_TARGET_RANK_SQL
 
         with self.con:
             self.con.executescript(LEMMA_CONFIDENCE_TABLE_SQL)
+            # Try to add target_rank column if it doesn't exist (migration)
+            try:
+                self.con.execute(MIGRATE_ADD_TARGET_RANK_SQL)
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
     def create_cards_table(self) -> None:
         with self.con:
@@ -677,6 +682,7 @@ class IntMorphsDB:  # pylint:disable=too-many-public-methods
                     srs_interval=row["srs_interval"],
                     next_due=row["next_due"],
                     is_target=bool(row["is_target"]),
+                    target_rank=row["target_rank"],
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                 )
@@ -697,8 +703,8 @@ class IntMorphsDB:  # pylint:disable=too-many-public-methods
                 INSERT INTO lemma_confidence
                     (lemma, score, stage, appearances, pass_count, fail_count,
                      burst_count, burst_started_at, srs_interval, next_due,
-                     is_target, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     is_target, target_rank, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(lemma) DO UPDATE SET
                     score = excluded.score,
                     stage = excluded.stage,
@@ -710,6 +716,7 @@ class IntMorphsDB:  # pylint:disable=too-many-public-methods
                     srs_interval = excluded.srs_interval,
                     next_due = excluded.next_due,
                     is_target = excluded.is_target,
+                    target_rank = excluded.target_rank,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -718,6 +725,7 @@ class IntMorphsDB:  # pylint:disable=too-many-public-methods
                     lc.burst_count, lc.burst_started_at,
                     lc.srs_interval, lc.next_due,
                     1 if lc.is_target else 0,
+                    lc.target_rank,
                     now,
                 ),
             )
@@ -731,6 +739,36 @@ class IntMorphsDB:  # pylint:disable=too-many-public-methods
             self.upsert_lemma_confidence(lc)
             saved += 1
         return saved
+
+    def clear_all_target_ranks(self) -> None:
+        """Reset all target ranks and target flags."""
+        with self.con:
+            self.con.execute(
+                "UPDATE lemma_confidence SET is_target = 0, target_rank = NULL"
+            )
+
+    def get_target_ranked_lemmas(self) -> list[str]:
+        """Get all target lemmas ordered by rank."""
+        try:
+            rows = self.con.execute(
+                "SELECT lemma FROM lemma_confidence "
+                "WHERE is_target = 1 AND target_rank IS NOT NULL "
+                "ORDER BY target_rank ASC"
+            ).fetchall()
+            return [row[0] for row in rows]
+        except sqlite3.OperationalError:
+            return []
+
+    def get_target_count(self) -> int:
+        """Count of ranked targets."""
+        try:
+            row = self.con.execute(
+                "SELECT COUNT(*) FROM lemma_confidence "
+                "WHERE is_target = 1 AND target_rank IS NOT NULL"
+            ).fetchone()
+            return row[0] if row else 0
+        except sqlite3.OperationalError:
+            return 0
 
     @staticmethod
     def get_new_cards_seen_today() -> Sequence[int]:

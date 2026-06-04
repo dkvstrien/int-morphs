@@ -103,5 +103,8 @@
   "bayesian_min_appearances": 10,
   "bayesian_min_pass_rate": 0.7,
   "bayesian_srs_initial": 1,
-  "bayesian_srs_max": 180
+  "bayesian_srs_max": 180,
+  "soak_limit": 10,
+  "soak_graduate_stage": "srs",
+  "soak_active_target_weight": 500000
 }

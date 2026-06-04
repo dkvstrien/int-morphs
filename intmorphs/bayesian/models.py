@@ -40,7 +40,8 @@ class LemmaConfidence:
     burst_started_at: float = 0.0
     srs_interval: int = 0        # days
     next_due: float = 0.0
-    is_target: bool = True       # all tracked lemmas are targets by default
+    is_target: bool = False       # False by default; only explicitly set targets are True
+    target_rank: Optional[int] = None  # position in the ranked target list (1-based)
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -63,8 +64,18 @@ class LemmaConfidence:
     def is_known(self) -> bool:
         return self.stage == ConfidenceStage.MATURE
 
+    @property
+    def is_graduated(self) -> bool:
+        """A target lemma has graduated when it reaches SRS or MATURE stage."""
+        return self.stage in (ConfidenceStage.SRS, ConfidenceStage.MATURE)
 
-# SQL for creating the lemma_confidence table
+    @property
+    def is_active_target(self) -> bool:
+        """Active = is a target AND not yet graduated."""
+        return self.is_target and self.target_rank is not None and not self.is_graduated
+
+
+# SQL for creating the lemma_confidence table (v2 — adds target_rank)
 LEMMA_CONFIDENCE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS lemma_confidence (
     lemma TEXT PRIMARY KEY,
@@ -77,8 +88,14 @@ CREATE TABLE IF NOT EXISTS lemma_confidence (
     burst_started_at REAL NOT NULL DEFAULT 0.0,
     srs_interval INTEGER NOT NULL DEFAULT 0,
     next_due REAL NOT NULL DEFAULT 0.0,
-    is_target INTEGER NOT NULL DEFAULT 1,
+    is_target INTEGER NOT NULL DEFAULT 0,
+    target_rank INTEGER,
     created_at REAL NOT NULL DEFAULT (unixepoch()),
     updated_at REAL NOT NULL DEFAULT (unixepoch())
 );
+"""
+
+# Migration SQL: add target_rank column if it doesn't exist
+MIGRATE_ADD_TARGET_RANK_SQL = """
+ALTER TABLE lemma_confidence ADD COLUMN target_rank INTEGER;
 """

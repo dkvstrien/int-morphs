@@ -101,11 +101,17 @@ class CardScore:
             + all_morphs_target_difference_score
         )
 
+        # Active target bonus: cards with more active targets get higher priority
+        active_target_score = (
+            am_config.soak_active_target_weight
+            * card_morph_metrics.active_target_count
+        )
+
         unknown_morphs_amount_score = (
             len(card_morph_metrics.unknown_morphs) * MORPH_UNKNOWN_PENALTY
         )
 
-        _score = unknown_morphs_amount_score + min(tuning, MORPH_UNKNOWN_PENALTY - 1)
+        _score = unknown_morphs_amount_score + min(tuning, MORPH_UNKNOWN_PENALTY - 1) + active_target_score
 
         # cap score to prevent 32-bit integer overflow
         self.due = self.score = min(_score, _MAX_SCORE)
@@ -119,7 +125,8 @@ class CardScore:
                 all_morphs_avg_priority_score: {all_morphs_avg_priority_score}, <br>
                 learning_morphs_avg_priority_score: {learning_morphs_avg_priority_score}, <br>
                 leaning_morphs_target_difference_score: {leaning_morphs_target_difference_score}, <br>
-                all_morphs_target_difference_score: {all_morphs_target_difference_score}
+                all_morphs_target_difference_score: {all_morphs_target_difference_score}, <br>
+                active_target_score: {active_target_score}
             """
 
         if _should_move_card_to_end(am_config, card_morph_metrics):

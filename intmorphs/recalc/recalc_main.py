@@ -166,6 +166,17 @@ def _update_cards_and_notes(  # pylint:disable=too-many-locals, too-many-stateme
     assert mw.progress is not None
 
     am_db = IntMorphsDB()
+    # Load active target lemmas for soak mode scoring
+    try:
+        from ..bayesian.target_manager import TargetPool
+        confidence_map = am_db.get_lemma_confidence_dict()
+        soak_limit = am_config.soak_limit
+        graduate_stage = am_config.soak_graduate_stage
+        pool = TargetPool(confidence_map, soak_limit=soak_limit, graduate_stage=graduate_stage)
+        active_target_lemmas: set[str] = pool.get_active_target_lemmas()
+    except Exception:
+        active_target_lemmas: set[str] = set()
+
     model_manager: ModelManager = mw.col.models
     card_morph_map_cache: dict[int, list[Morpheme]] = am_db.get_card_morph_map_cache()
     handled_cards: dict[CardId, None] = {}  # we only care about the key lookup
@@ -224,6 +235,7 @@ def _update_cards_and_notes(  # pylint:disable=too-many-locals, too-many-stateme
                 card_id,
                 card_morph_map_cache,
                 morph_priorities,
+                active_target_lemmas=active_target_lemmas,
             )
 
             if card.type == CARD_TYPE_NEW:

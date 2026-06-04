@@ -13,6 +13,8 @@ class CardMorphsMetrics:  # pylint:disable=too-many-instance-attributes
         "total_priority_learning_morphs",
         "avg_priority_all_morphs",
         "avg_priority_learning_morphs",
+        "active_target_count",
+        "active_target_lemmas",
     )
 
     def __init__(
@@ -21,6 +23,7 @@ class CardMorphsMetrics:  # pylint:disable=too-many-instance-attributes
         card_id: int,
         card_morph_map_cache: dict[int, list[Morpheme]],
         morph_priorities: dict[tuple[str, str], int],
+        active_target_lemmas: set[str] | None = None,
     ) -> None:
         self.all_morphs: list[Morpheme] = []
         self.unknown_morphs: list[Morpheme] = []
@@ -31,6 +34,8 @@ class CardMorphsMetrics:  # pylint:disable=too-many-instance-attributes
         self.total_priority_learning_morphs: int = 0
         self.avg_priority_all_morphs: int = 0
         self.avg_priority_learning_morphs: int = 0
+        self.active_target_count: int = 0
+        self.active_target_lemmas: set[str] = active_target_lemmas or set()
 
         try:
             self.all_morphs = card_morph_map_cache[card_id]
@@ -85,6 +90,13 @@ class CardMorphsMetrics:  # pylint:disable=too-many-instance-attributes
         self.avg_priority_all_morphs = int(
             self.total_priority_all_morphs / len(self.all_morphs)
         )
+
+        # Count active targets (soak mode)
+        if self.active_target_lemmas:
+            self.active_target_count = sum(
+                1 for morph in self.all_morphs
+                if morph.lemma in self.active_target_lemmas
+            )
 
         if self.num_learning_morphs > 0:
             self.has_learning_morphs = True
